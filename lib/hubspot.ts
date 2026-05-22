@@ -20,32 +20,39 @@ async function hubspotRequest(method: string, path: string, body?: object) {
 export async function createContact(data: {
   email: string
   firstName: string
-  lastName?: string
   phone?: string
   budget?: string
   financingStatus?: string
   shippingDestination?: string
   purchaseTimeline?: string
   primaryVehicle?: string
+  secondaryVehicle?: string
+  preferredColors?: string
+  requiredOptions?: string
+  tradeInVehicle?: string
   referralSource?: string
 }) {
-  const [firstName, ...rest] = data.firstName.split(' ')
-  const lastName = data.lastName ?? rest.join(' ') ?? ''
+  const parts = data.firstName.trim().split(' ')
+  const firstname = parts[0]
+  const lastname = parts.slice(1).join(' ')
 
   return hubspotRequest('POST', '/crm/v3/objects/contacts', {
     properties: {
       email: data.email,
-      firstname: firstName,
-      lastname: lastName,
+      firstname,
+      lastname,
       phone: data.phone ?? '',
-      // Custom properties (must exist in HubSpot portal)
-      budget: data.budget ?? '',
+      primary_vehicle_interest: data.primaryVehicle ?? '',
+      secondary_vehicle: data.secondaryVehicle ?? '',
+      preferred_colors: data.preferredColors ?? '',
+      required_options: data.requiredOptions ?? '',
       financing_status: data.financingStatus ?? '',
       shipping_destination: data.shippingDestination ?? '',
       purchase_timeline: data.purchaseTimeline ?? '',
-      primary_vehicle_interest: data.primaryVehicle ?? '',
+      trade_in_vehicle: data.tradeInVehicle ?? '',
       lead_source: data.referralSource ?? 'Website Intake Form',
       hs_lead_status: 'NEW',
+      intake_submitted_at: new Date().toISOString(),
     },
   })
 }
@@ -57,7 +64,6 @@ export async function createDeal(data: {
   budget?: string
   stage?: string
 }) {
-  // Create deal
   const deal = await hubspotRequest('POST', '/crm/v3/objects/deals', {
     properties: {
       dealname: data.dealName,
@@ -65,11 +71,12 @@ export async function createDeal(data: {
       pipeline: 'default',
       amount: data.budget?.replace(/[^0-9.]/g, '') ?? '',
       description: data.primaryVehicle ? `Vehicle: ${data.primaryVehicle}` : '',
-      closedate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      closedate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        .toISOString().split('T')[0],
     },
   })
 
-  // Associate deal with contact
+  // Associate deal → contact
   await hubspotRequest(
     'PUT',
     `/crm/v3/objects/deals/${deal.id}/associations/contacts/${data.contactId}/deal_to_contact`,
