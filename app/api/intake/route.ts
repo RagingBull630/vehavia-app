@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createContact, createDeal, createNote } from '@/lib/hubspot'
+import { sendWelcomeEmail } from '@/lib/email'
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,60 +30,42 @@ export async function POST(req: NextRequest) {
     // 2. Create HubSpot deal linked to contact
     const deal = await createDeal({
       contactId: contact.id,
-      dealName: `${fullName} — ${primaryVehicle ?? 'Vehicle TBD'}`,
+      dealName: `${fullName} — ${primaryVehicle || 'Vehicle Search'}`,
       primaryVehicle,
       budget,
       stage: 'qualifiedtobuy',
     })
 
-    // 3. Attach full intake details as a note
-    const noteBody = `
-INTAKE FORM SUBMISSION
+    // 3. Attach full intake note to contact
+    await createNote(contact.id, [
+      `Full Name: ${fullName}`,
+      `Email: ${email}`,
+      `Phone: ${phone || 'N/A'}`,
+      `Primary Vehicle: ${primaryVehicle || 'N/A'}`,
+      `Secondary Vehicle: ${secondaryVehicle || 'N/A'}`,
+      `Preferred Colors: ${preferredColors || 'N/A'}`,
+      `Required Options: ${requiredOptions || 'N/A'}`,
+      `Budget: ${budget || 'N/A'}`,
+      `Financing Status: ${financingStatus || 'N/A'}`,
+      `Trade-In: ${tradeInVehicle || 'N/A'}`,
+      `Shipping Destination: ${shippingDestination || 'N/A'}`,
+      `Purchase Timeline: ${purchaseTimeline || 'N/A'}`,
+      `Referral Source: ${referralSource || 'N/A'}`,
+    ].join('\n'))
 
-VEHICLE
-• Primary: ${primaryVehicle ?? '—'}
-• Secondary/backup: ${secondaryVehicle ?? '—'}
-• Preferred colors: ${preferredColors ?? '—'}
-• Required options: ${requiredOptions ?? '—'}
-• Acceptable alternatives: ${acceptableAlternatives ?? '—'}
-
-FINANCIAL
-• Budget: ${budget ?? '—'}
-• Financing status: ${financingStatus ?? '—'}
-• Trade-in: ${tradeInVehicle ?? '—'}
-
-LOGISTICS
-• Shipping destination: ${shippingDestination ?? '—'}
-• Purchase timeline: ${purchaseTimeline ?? '—'}
-• Current vehicle situation: ${currentVehicleSituation ?? '—'}
-
-SOURCE
-• Referral: ${referralSource ?? '—'}
-• Submission time: ${new Date().toISOString()}
-    `.trim()
-
-    await createNote(contact.id, noteBody)
-
-    // TODO: 4. Trigger DocuSign service agreement envelope
-    // await sendContractEnvelope({ name: fullName, email, dealId: deal.id })
-
-    // TODO: 5. Send SendGrid welcome + contract + payment link email sequence
-    // await sendWelcomeEmail({ name: fullName, email, dealId: deal.id })
-
-    console.log(`Intake created — Contact: ${contact.id}, Deal: ${deal.id}`)
-
-    return NextResponse.json({
-      success: true,
-      contactId: contact.id,
-      dealId: deal.id,
+    // 4. Send welcome email with Stripe payment link
+    // TODO: generate Stripe link dynamically per client
+    await sendWelcomeEmail({
+      email,
+      fullName,
+      primaryVehicle,
+      stripePaymentLink: process.env.STRIPE_STARTUP_PAYMENT_LINK,
+      calendlyLink: process.env.CALENDLY_EVENT_URI,
     })
 
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    console.error('Intake error:', message)
-    return NextResponse.json(
-      { success: false, error: 'Submission failed. Please try again.' },
-      { status: 500 }
-    )
+    return NextResponse.json({ success: true, contactId: contact.id, dealId: deal.id })
+  } catch (err: any) {
+    console.error('[Intake API]', err)
+    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 })
   }
 }
