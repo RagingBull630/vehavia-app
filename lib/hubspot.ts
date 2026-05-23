@@ -14,6 +14,7 @@ async function hubspotRequest(method: string, path: string, body?: object) {
     const err = await res.text()
     throw new Error(`HubSpot ${method} ${path} → ${res.status}: ${err}`)
   }
+  if (res.status === 204) return { id: null }
   return res.json()
 }
 
@@ -36,25 +37,42 @@ export async function createContact(data: {
   const firstname = parts[0]
   const lastname = parts.slice(1).join(' ')
 
-  return hubspotRequest('POST', '/crm/v3/objects/contacts', {
-    properties: {
-      email: data.email,
-      firstname,
-      lastname,
-      phone: data.phone ?? '',
-      primary_vehicle_interest: data.primaryVehicle ?? '',
-      secondary_vehicle: data.secondaryVehicle ?? '',
-      preferred_colors: data.preferredColors ?? '',
-      required_options: data.requiredOptions ?? '',
-      financing_status: data.financingStatus ?? '',
-      shipping_destination: data.shippingDestination ?? '',
-      purchase_timeline: data.purchaseTimeline ?? '',
-      trade_in_vehicle: data.tradeInVehicle ?? '',
-      lead_source: data.referralSource ?? 'Website Intake Form',
-      hs_lead_status: 'NEW',
-      intake_submitted_at: new Date().toISOString(),
-    },
-  })
+  const properties = {
+    email: data.email,
+    firstname,
+    lastname,
+    phone: data.phone ?? '',
+    primary_vehicle_interest: data.primaryVehicle ?? '',
+    secondary_vehicle: data.secondaryVehicle ?? '',
+    preferred_colors: data.preferredColors ?? '',
+    required_options: data.requiredOptions ?? '',
+    financing_status: data.financingStatus ?? '',
+    shipping_destination: data.shippingDestination ?? '',
+    purchase_timeline: data.purchaseTimeline ?? '',
+    trade_in_vehicle: data.tradeInVehicle ?? '',
+    lead_source: data.referralSource ?? 'Website Intake Form',
+    hs_lead_status: 'NEW',
+    intake_submitted_at: new Date().toISOString(),
+  }
+
+  try {
+    // Try to create
+    return await hubspotRequest('POST', '/crm/v3/objects/contacts', { properties })
+  } catch (err: any) {
+    // If contact exists (409), find and update it
+    if (err.message?.includes('409')) {
+      const search = await hubspotRequest('POST', '/crm/v3/objects/contacts/search', {
+        filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: data.email }] }],
+        properties: ['email'],
+        limit: 1,
+      })
+      const existingId = search.results?.[0]?.id
+      if (existingId) {
+        return hubspotRequest('PATCH', `/crm/v3/objects/contacts/${existingId}`, { properties })
+      }
+    }
+    throw err
+  }
 }
 
 export async function createDeal(data: {
@@ -76,7 +94,6 @@ export async function createDeal(data: {
     },
   })
 
-  // Associate deal → contact
   await hubspotRequest(
     'PUT',
     `/crm/v3/objects/deals/${deal.id}/associations/contacts/${data.contactId}/deal_to_contact`,
